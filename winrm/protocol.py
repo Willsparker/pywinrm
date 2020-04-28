@@ -2,7 +2,7 @@
 from __future__ import unicode_literals
 import base64
 import uuid
-
+import sys
 import xml.etree.ElementTree as ET
 import xmltodict
 
@@ -152,7 +152,7 @@ class Protocol(object):
             shell['rsp:WorkingDirectory'] = working_directory
             # TODO check Lifetime param: http://msdn.microsoft.com/en-us/library/cc251546(v=PROT.13).aspx  # NOQA
             # if lifetime:
-            #    shell['rsp:Lifetime'] = iso8601_duration.sec_to_dur(lifetime)
+            # shell['rsp:Lifetime'] = iso8601_duration.sec_to_dur(lifetime)
         # TODO make it so the input is given in milliseconds and converted to xs:duration  # NOQA
         if idle_timeout:
             shell['rsp:IdleTimeOut'] = idle_timeout
@@ -428,7 +428,7 @@ class Protocol(object):
         stdin_envelope['#text'] = base64.b64encode(stdin_input)
         self.send_message(xmltodict.unparse(req))
 
-    def get_command_output(self, shell_id, command_id):
+    def get_command_output(self, shell_id, command_id, out_stream=None, err_stream=None):
         """
         Get the Output of the given shell and command
         @param string shell_id: The shell id on the remote machine.
@@ -446,7 +446,7 @@ class Protocol(object):
         while not command_done:
             try:
                 stdout, stderr, return_code, command_done = \
-                    self._raw_get_command_output(shell_id, command_id)
+                    self._raw_get_command_output(shell_id, command_id, out_stream, err_stream)
                 stdout_buffer.append(stdout)
                 stderr_buffer.append(stderr)
             except WinRMOperationTimeoutError:
@@ -454,7 +454,7 @@ class Protocol(object):
                 pass
         return b''.join(stdout_buffer), b''.join(stderr_buffer), return_code
 
-    def _raw_get_command_output(self, shell_id, command_id):
+    def _raw_get_command_output(self, shell_id, command_id, out_stream=None, err_stream=None):
         req = {'env:Envelope': self._get_soap_header(
             resource_uri='http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd',  # NOQA
             action='http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive',  # NOQA
@@ -475,10 +475,16 @@ class Protocol(object):
         for stream_node in stream_nodes:
             if not stream_node.text:
                 continue
-            if stream_node.attrib['Name'] == 'stdout':
-                stdout += base64.b64decode(stream_node.text.encode('ascii'))
-            elif stream_node.attrib['Name'] == 'stderr':
-                stderr += base64.b64decode(stream_node.text.encode('ascii'))
+            if stream_node.text:
+                content = str(base64.b64decode(stream_node.text.encode('ascii')))
+                if stream_node.attrib['Name'] == 'stdout':
+                    if out_stream:
+                        out_stream.write(content)
+                    stdout += content
+                elif stream_node.attrib['Name'] == 'stderr':
+                    if err_stream:
+                        err_stream.write(content)
+                    stderr += content
 
         # We may need to get additional output if the stream has not finished.
         # The CommandState will change from Running to Done like so:

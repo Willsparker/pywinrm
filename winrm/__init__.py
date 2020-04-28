@@ -17,6 +17,7 @@ FEATURE_PROXY_SUPPORT = True
 
 class Response(object):
     """Response from a remote command execution"""
+
     def __init__(self, args):
         self.std_out, self.std_err, self.status_code = args
 
@@ -34,22 +35,22 @@ class Session(object):
         self.protocol = Protocol(self.url,
                                  username=username, password=password, **kwargs)
 
-    def run_cmd(self, command, args=()):
+    def run_cmd(self, command, args=(), out_stream=None, err_stream=None):
         # TODO optimize perf. Do not call open/close shell every time
         shell_id = self.protocol.open_shell()
         command_id = self.protocol.run_command(shell_id, command, args)
-        rs = Response(self.protocol.get_command_output(shell_id, command_id))
+        rs = Response(self.protocol.get_command_output(shell_id, command_id, out_stream, err_stream))
         self.protocol.cleanup_command(shell_id, command_id)
         self.protocol.close_shell(shell_id)
         return rs
 
-    def run_ps(self, script):
+    def run_ps(self, script, out_stream=None, err_stream=None):
         """base64 encodes a Powershell script and executes the powershell
         encoded script command
         """
         # must use utf16 little endian on windows
         encoded_ps = b64encode(script.encode('utf_16_le')).decode('ascii')
-        rs = self.run_cmd('powershell -encodedcommand {0}'.format(encoded_ps))
+        rs = self.run_cmd('powershell -encodedcommand {1}'.format(encoded_ps), out_stream=out_stream, err_stream=err_stream)
         if len(rs.std_err):
             # if there was an error message, clean it it up and make it human
             # readable
